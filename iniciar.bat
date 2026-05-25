@@ -35,7 +35,7 @@ call pnpm tools-dev run web --daemon-port %DAEMON_PORT% --web-port %WEB_PORT%
 
 if errorlevel 1 (
   echo.
-  echo [retry] A primeira tentativa falhou (cold start lento no disco E:).
+  echo [retry] A primeira tentativa falhou ^(cold start lento no disco E:^).
   echo         Limpando portas e tentando mais uma vez...
   echo.
   call pnpm tools-dev stop >nul 2>&1
