@@ -6,6 +6,11 @@ cd /d "%~dp0"
 set "WEB_PORT=17573"
 set "DAEMON_PORT=17456"
 
+REM Folga de inicializacao maior: o disco E: e lento e o primeiro compile do
+REM Next.js (cold start) pode passar do limite padrao. Ajuste se precisar.
+set "OD_DEV_WEB_TIMEOUT_MS=180000"
+set "OD_DEV_DAEMON_TIMEOUT_MS=90000"
+
 echo.
 echo ============================================
 echo   Open Design - iniciando servidor local
