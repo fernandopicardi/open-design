@@ -1,0 +1,22 @@
+{
+  "name": "@open-design/figma-plugin",
+  "version": "0.7.0",
+  "private": true,
+  "type": "module",
+  "description": "Figma plugin that imports an Open Design `.odfig.json` scene as native Figma layers.",
+  "scripts": {
+    "build": "node ./esbuild.config.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json --noEmit"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.100.0",
+    "@open-design/contracts": "workspace:*",
+    "esbuild": "0.27.7",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": "~24"
+  }
+}

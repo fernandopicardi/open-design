@@ -306,6 +306,24 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.12.2)(jsdom@29.1.1)(lightningcss@1.32.0)
 
+  packages/figma-plugin:
+    devDependencies:
+      '@figma/plugin-typings':
+        specifier: ^1.100.0
+        version: 1.127.0
+      '@open-design/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      esbuild:
+        specifier: 0.27.7
+        version: 0.27.7
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@24.12.2)(jsdom@29.1.1)(lightningcss@1.32.0)
+
   packages/platform:
     devDependencies:
       '@types/node':
@@ -1105,6 +1123,9 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@figma/plugin-typings@1.127.0':
+    resolution: {integrity: sha512-Y8fjfUCdWN6bUTs1wsd9GFZ3zF4USDVNmmxfUo/4Ia7NmFemSK2nBxOu7BKcusEHCERwiO7N8iOqw5jwvbL80g==}
 
   '@hono/node-server@1.19.14':
     resolution: {integrity: sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==}
@@ -5508,6 +5529,8 @@ snapshots:
     optional: true
 
   '@exodus/bytes@1.15.0': {}
+
+  '@figma/plugin-typings@1.127.0': {}
 
   '@hono/node-server@1.19.14(hono@4.12.16)':
     dependencies:

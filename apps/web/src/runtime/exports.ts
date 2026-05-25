@@ -12,6 +12,8 @@
 // PPTX export is fundamentally different — it asks the agent to convert the
 // artifact server-side, so it lives in ProjectView.tsx (not here).
 
+import type { FigmaScene } from '@open-design/contracts';
+
 import { buildSrcdoc, type SrcdocOptions } from './srcdoc';
 import { buildReactComponentSrcdoc } from './react-component';
 import { buildZip } from './zip';
@@ -391,6 +393,121 @@ export function exportAsImage(dataUrl: string, title: string): void {
     // Re-throw the error to allow the caller to handle UI feedback
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Figma scene export
+// ---------------------------------------------------------------------------
+
+/**
+ * Ask the Figma bridge injected into a srcdoc preview iframe to walk the
+ * rendered DOM and return a `FigmaScene`. Mirrors `requestPreviewSnapshot`:
+ * returns null if the bridge is absent (e.g. URL-load mode) or it times out.
+ * The default timeout is generous because the walk waits for images first.
+ */
+export function requestFigmaScene(
+  iframe: HTMLIFrameElement,
+  timeout = 8000,
+): Promise<FigmaScene | null> {
+  const win = iframe.contentWindow;
+  if (!win) return Promise.resolve(null);
+  const id = `fig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise((resolve) => {
+    let done = false;
+    function finish(value: FigmaScene | null) {
+      if (done) return;
+      done = true;
+      window.removeEventListener('message', onMsg);
+      resolve(value);
+    }
+    function onMsg(ev: MessageEvent) {
+      if (ev.source !== win) return;
+      const d = ev.data as {
+        type?: string;
+        id?: string;
+        scene?: FigmaScene;
+        error?: string;
+      } | null;
+      if (!d || d.type !== 'od:figma-extract:result' || d.id !== id) return;
+      if (d.scene) finish(d.scene);
+      else finish(null);
+    }
+    window.addEventListener('message', onMsg);
+    try {
+      win.postMessage({ type: 'od:figma-extract', id }, '*');
+    } catch {
+      /* sandboxed */
+    }
+    setTimeout(() => finish(null), timeout);
+  });
+}
+
+/** Pretty-print a scene as the `.odfig.json` file body. Pure; unit-tested. */
+export function serializeFigmaScene(scene: FigmaScene): string {
+  return JSON.stringify(scene, null, 2);
+}
+
+/**
+ * Download a captured scene as `<title>.odfig.json`. The companion Figma
+ * plugin (packages/figma-plugin) imports this file and rebuilds it as native
+ * Figma layers.
+ */
+export function exportAsFigmaScene(scene: FigmaScene, title: string): void {
+  const blob = new Blob([serializeFigmaScene(scene)], {
+    type: 'application/json;charset=utf-8',
+  });
+  triggerDownload(blob, `${safeFilename(title, 'artifact')}.odfig.json`);
+}
+
+/**
+ * Capture a scene from a self-contained srcdoc document by rendering it in a
+ * throwaway offscreen iframe, then asking its injected Figma bridge for the
+ * scene. This is the path for multi-file artifacts whose visible preview is
+ * URL-loaded (so the live iframe has no bridge): the caller passes the
+ * `buildSrcdoc(...)` output, which carries both the bridge and a `<base href>`
+ * so relative assets still resolve. The iframe is always removed before this
+ * resolves. Returns null on timeout.
+ */
+export function captureFigmaSceneFromSrcdoc(
+  srcdocHtml: string,
+  opts?: { width?: number; height?: number },
+): Promise<FigmaScene | null> {
+  return new Promise((resolve) => {
+    const iframe = document.createElement('iframe');
+    // Same sandbox as the visible preview: scripts run (the bridge needs to),
+    // but the document stays opaque-origin.
+    iframe.setAttribute('sandbox', 'allow-scripts');
+    iframe.setAttribute('aria-hidden', 'true');
+    // Keep it laid out (no display:none / visibility:hidden) so geometry is
+    // real, but off-screen and non-interactive.
+    iframe.style.cssText =
+      'position:fixed;left:-100000px;top:0;opacity:0;pointer-events:none;border:0;';
+    iframe.style.width = `${Math.max(320, Math.round(opts?.width || 1280))}px`;
+    iframe.style.height = `${Math.max(320, Math.round(opts?.height || 1024))}px`;
+    iframe.srcdoc = srcdocHtml;
+
+    let settled = false;
+    function finish(value: FigmaScene | null) {
+      if (settled) return;
+      settled = true;
+      try {
+        document.body.removeChild(iframe);
+      } catch {
+        /* already detached */
+      }
+      resolve(value);
+    }
+
+    iframe.addEventListener('load', () => {
+      // Let layout and any deferred assets settle, then ask the bridge.
+      setTimeout(() => {
+        void requestFigmaScene(iframe, 10_000).then(finish);
+      }, 600);
+    });
+    document.body.appendChild(iframe);
+    // Hard ceiling in case `load` never fires.
+    setTimeout(() => finish(null), 20_000);
+  });
 }
 
 export type ProjectPdfExportResult = 'desktop' | 'fallback';

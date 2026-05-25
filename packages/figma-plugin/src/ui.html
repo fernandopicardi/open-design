@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font-family: Inter, -apple-system, system-ui, sans-serif;
+        font-size: 12px;
+        color: #1a1a1a;
+        margin: 0;
+        padding: 16px;
+      }
+      h1 { font-size: 13px; margin: 0 0 4px; }
+      p { margin: 0 0 12px; color: #666; line-height: 1.4; }
+      .drop {
+        border: 1.5px dashed #c4c4c4;
+        border-radius: 8px;
+        padding: 18px;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+      }
+      .drop:hover { border-color: #18a0fb; background: #f5faff; }
+      .drop input { display: none; }
+      .status { margin-top: 12px; min-height: 16px; }
+      .status.error { color: #d93025; }
+      .status.ok { color: #1a8a3a; }
+    </style>
+  </head>
+  <body>
+    <h1>Open Design → Figma</h1>
+    <p>Choose the <strong>.odfig.json</strong> file exported from Open Design (Share → Export to Figma).</p>
+    <label class="drop" id="drop">
+      Click to choose a .odfig.json file
+      <input id="file" type="file" accept=".json,application/json" />
+    </label>
+    <div class="status" id="status"></div>
+
+    <script>
+      var fileInput = document.getElementById('file');
+      var statusEl = document.getElementById('status');
+
+      function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = 'status' + (kind ? ' ' + kind : '');
+      }
+
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        setStatus('Reading ' + file.name + '…');
+        var reader = new FileReader();
+        reader.onload = function () {
+          parent.postMessage(
+            { pluginMessage: { type: 'import', json: String(reader.result || '') } },
+            '*'
+          );
+          setStatus('Building layers…');
+        };
+        reader.onerror = function () {
+          setStatus('Could not read the file.', 'error');
+        };
+        reader.readAsText(file);
+      });
+
+      window.onmessage = function (event) {
+        var msg = event.data && event.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === 'done') setStatus('Imported "' + msg.title + '" ✓', 'ok');
+        else if (msg.type === 'error') setStatus(msg.reason || 'Import failed.', 'error');
+      };
+    </script>
+  </body>
+</html>

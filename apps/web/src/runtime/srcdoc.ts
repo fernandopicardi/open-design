@@ -70,7 +70,8 @@ export function buildSrcdoc(
     ? injectPaletteBridge(withSelection, { initialPalette: options.initialPalette ?? null })
     : withSelection;
   const withEdit = options.editBridge ? injectManualEditBridge(withPalette) : withPalette;
-  return injectSnapshotBridge(withEdit);
+  const withSnapshot = injectSnapshotBridge(withEdit);
+  return injectFigmaBridge(withSnapshot);
 }
 
 function injectSnapshotBridge(doc: string): string {
@@ -160,6 +161,236 @@ function injectSnapshotBridge(doc: string): string {
     var data = ev && ev.data;
     if (!data || data.type !== 'od:snapshot' || !data.id) return;
     waitForImages().then(function(){ renderSnapshot(String(data.id)); });
+  });
+})();</script>`;
+  return injectBeforeBodyEnd(doc, script);
+}
+
+// Figma bridge: on host postMessage, walk the already-rendered DOM and emit
+// a normalized `FigmaScene` (see packages/contracts api/figma-scene). The
+// preview iframe is sandboxed without `allow-same-origin`, so the host can't
+// read this DOM directly — extraction must happen in here and post the result
+// out, exactly like the snapshot bridge above. Geometry comes from the live
+// layout (getBoundingClientRect), so no headless browser is needed. ES5 style
+// and doubled backslashes keep the regexes intact once inlined into srcdoc.
+function injectFigmaBridge(doc: string): string {
+  const script = `<script data-od-figma-bridge>(function(){
+  function num(v){ var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+  function parseColor(str){
+    if (!str) return null;
+    var m = String(str).match(/rgba?\\(([^)]+)\\)/);
+    if (!m) return null;
+    var p = m[1].split(',').map(function(s){ return parseFloat(s); });
+    var a = p.length > 3 ? p[3] : 1;
+    if (!a) return null;
+    return { r: (p[0]||0)/255, g: (p[1]||0)/255, b: (p[2]||0)/255, a: a };
+  }
+  function mapAlign(v){
+    if (v === 'center') return 'center';
+    if (v === 'right' || v === 'end') return 'right';
+    if (v === 'justify') return 'justified';
+    return 'left';
+  }
+  function parseStopColor(str){
+    var m = String(str).match(/rgba?\\(([^)]+)\\)/);
+    if (!m) return null;
+    var p = m[1].split(',').map(function(s){ return parseFloat(s); });
+    var a = p.length > 3 ? p[3] : 1;
+    return { r: (p[0]||0)/255, g: (p[1]||0)/255, b: (p[2]||0)/255, a: isNaN(a) ? 1 : a };
+  }
+  function splitTopLevel(s){
+    var parts = [], depth = 0, cur = '';
+    for (var i = 0; i < s.length; i++){
+      var ch = s[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      if (ch === ',' && depth === 0){ parts.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    if (cur.trim()) parts.push(cur);
+    return parts;
+  }
+  function angleFromDirection(dir){
+    if (!dir) return 180;
+    var d = dir.match(/(-?[0-9.]+)deg/);
+    if (d) return parseFloat(d[1]);
+    var t = dir.match(/(-?[0-9.]+)turn/);
+    if (t) return parseFloat(t[1]) * 360;
+    if (/to\\s+top\\s+right/.test(dir)) return 45;
+    if (/to\\s+bottom\\s+right/.test(dir)) return 135;
+    if (/to\\s+bottom\\s+left/.test(dir)) return 225;
+    if (/to\\s+top\\s+left/.test(dir)) return 315;
+    if (/to\\s+top/.test(dir)) return 0;
+    if (/to\\s+right/.test(dir)) return 90;
+    if (/to\\s+bottom/.test(dir)) return 180;
+    if (/to\\s+left/.test(dir)) return 270;
+    return 180;
+  }
+  function parseGradient(bg){
+    if (!bg || bg.indexOf('gradient(') < 0) return null;
+    var m = bg.match(/(linear|radial|conic)-gradient\\s*\\(/);
+    if (!m) return null;
+    var kind = m[1] === 'radial' ? 'radial' : 'linear';
+    var start = m.index + m[0].length;
+    var depth = 1, i = start;
+    for (; i < bg.length && depth > 0; i++){
+      if (bg[i] === '(') depth++;
+      else if (bg[i] === ')') depth--;
+    }
+    var parts = splitTopLevel(bg.slice(start, i - 1));
+    if (!parts.length) return null;
+    var angle = 180;
+    if (parts[0] && parts[0].indexOf('rgb') < 0 && /deg|turn|to\\s/.test(parts[0])) {
+      angle = angleFromDirection(parts.shift());
+    } else if (m[1] === 'radial' && parts[0] && parts[0].indexOf('rgb') < 0) {
+      parts.shift();
+    }
+    var stops = [];
+    for (var s = 0; s < parts.length; s++){
+      var col = parseStopColor(parts[s]);
+      if (!col) continue;
+      var pos = parts[s].match(/([0-9.]+)%/);
+      stops.push({ position: pos ? parseFloat(pos[1]) / 100 : null, color: col });
+    }
+    if (stops.length < 2) return null;
+    for (var k = 0; k < stops.length; k++){
+      if (stops[k].position == null) stops[k].position = k / (stops.length - 1);
+    }
+    return { kind: kind, angle: angle, stops: stops };
+  }
+  function autoLayout(cs){
+    var d = cs.display;
+    if (d !== 'flex' && d !== 'inline-flex') return null;
+    var col = (cs.flexDirection || '').indexOf('column') === 0;
+    var jc = cs.justifyContent;
+    var primary = jc === 'center' ? 'center'
+      : (jc === 'flex-end' || jc === 'end') ? 'max'
+      : (jc === 'space-between' || jc === 'space-around' || jc === 'space-evenly') ? 'space-between'
+      : 'min';
+    var ai = cs.alignItems;
+    var counter = ai === 'center' ? 'center' : (ai === 'flex-end' || ai === 'end') ? 'max' : 'min';
+    return {
+      direction: col ? 'vertical' : 'horizontal',
+      gap: num(cs.gap) || num(cs.columnGap) || num(cs.rowGap) || 0,
+      paddingTop: num(cs.paddingTop), paddingRight: num(cs.paddingRight),
+      paddingBottom: num(cs.paddingBottom), paddingLeft: num(cs.paddingLeft),
+      primaryAxisAlign: primary, counterAxisAlign: counter
+    };
+  }
+  function strokeFrom(cs){
+    var w = num(cs.borderTopWidth);
+    if (!w || cs.borderTopStyle === 'none') return null;
+    var c = parseColor(cs.borderTopColor);
+    return c ? { color: c, weight: w } : null;
+  }
+  function nodeName(el){
+    var tag = el.tagName ? el.tagName.toLowerCase() : 'node';
+    if (el.id) return (tag + '#' + el.id).slice(0, 40);
+    var cls = (typeof el.className === 'string' && el.className.trim())
+      ? '.' + el.className.trim().split(/\\s+/)[0] : '';
+    return (tag + cls).slice(0, 40);
+  }
+  var SKIP = { SCRIPT:1, STYLE:1, NOSCRIPT:1, TEMPLATE:1, LINK:1, META:1, HEAD:1, TITLE:1, BR:1 };
+  function isRendered(el){
+    if (!el || el.nodeType !== 1) return false;
+    if (SKIP[el.tagName]) return false;
+    var cs = window.getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || num(cs.opacity) === 0) return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+  function childElements(el){
+    var out = [], kids = el.children || [];
+    for (var i = 0; i < kids.length; i++){ if (kids[i].nodeType === 1) out.push(kids[i]); }
+    return out;
+  }
+  function textFrom(cs, txt){
+    var clip = cs.webkitBackgroundClip || cs.backgroundClip || '';
+    var grad = clip.indexOf('text') >= 0 ? parseGradient(cs.backgroundImage) : null;
+    return {
+      characters: txt,
+      fontFamily: ((cs.fontFamily || '').split(',')[0] || 'Inter').replace(/["']/g, '').trim() || 'Inter',
+      fontWeight: parseInt(cs.fontWeight, 10) || 400,
+      fontSize: num(cs.fontSize) || 16,
+      lineHeight: (cs.lineHeight && cs.lineHeight !== 'normal') ? num(cs.lineHeight) : null,
+      letterSpacing: (cs.letterSpacing && cs.letterSpacing !== 'normal') ? num(cs.letterSpacing) : 0,
+      textAlign: mapAlign(cs.textAlign),
+      color: parseColor(cs.color) || { r: 0, g: 0, b: 0, a: 1 },
+      gradient: grad
+    };
+  }
+  function build(el, parentRect){
+    var rect = el.getBoundingClientRect();
+    var cs = window.getComputedStyle(el);
+    var node = {
+      type: 'frame', name: nodeName(el),
+      x: rect.left - parentRect.left, y: rect.top - parentRect.top,
+      width: rect.width, height: rect.height,
+      opacity: num(cs.opacity) || 1,
+      fill: parseColor(cs.backgroundColor),
+      gradient: parseGradient(cs.backgroundImage),
+      stroke: strokeFrom(cs),
+      cornerRadius: num(cs.borderTopLeftRadius),
+      autoLayout: autoLayout(cs),
+      text: null, imageSrc: null, children: []
+    };
+    if (el.tagName.toLowerCase() === 'img'){
+      node.type = 'image'; node.fill = null; node.gradient = null; node.imageSrc = el.currentSrc || el.src || null;
+      return node;
+    }
+    var kids = childElements(el);
+    if (!kids.length){
+      var txt = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (txt){ node.type = 'text'; node.fill = null; node.gradient = null; node.text = textFrom(cs, txt); }
+      return node;
+    }
+    for (var i = 0; i < kids.length; i++){
+      if (isRendered(kids[i])) node.children.push(build(kids[i], rect));
+    }
+    return node;
+  }
+  function extract(){
+    var body = document.body, docEl = document.documentElement;
+    var rect = body.getBoundingClientRect();
+    var w = Math.max(rect.width, docEl.scrollWidth || 0, body.scrollWidth || 0, window.innerWidth || 0, 1);
+    var h = Math.max(rect.height, docEl.scrollHeight || 0, body.scrollHeight || 0, window.innerHeight || 0, 1);
+    var bodyCs = window.getComputedStyle(body);
+    var docCs = window.getComputedStyle(docEl);
+    var grad = parseGradient(bodyCs.backgroundImage) || parseGradient(docCs.backgroundImage);
+    var fill = parseColor(bodyCs.backgroundColor)
+      || parseColor(docCs.backgroundColor)
+      || (grad ? null : { r: 1, g: 1, b: 1, a: 1 });
+    var root = {
+      type: 'frame', name: 'Artifact', x: 0, y: 0, width: w, height: h,
+      opacity: 1, fill: fill, gradient: grad, stroke: null, cornerRadius: 0,
+      autoLayout: null, text: null, imageSrc: null, children: []
+    };
+    var kids = childElements(body);
+    for (var i = 0; i < kids.length; i++){
+      if (isRendered(kids[i])) root.children.push(build(kids[i], rect));
+    }
+    return { schema: 'open-design.figma-scene.v1', title: document.title || 'Artifact', width: w, height: h, root: root };
+  }
+  function waitForImages(){
+    var imgs = Array.prototype.slice.call(document.images || []);
+    return Promise.all(imgs.map(function(img){
+      if (img.complete) return Promise.resolve();
+      return new Promise(function(resolve){
+        img.addEventListener('load', resolve, { once: true });
+        img.addEventListener('error', resolve, { once: true });
+      });
+    }));
+  }
+  window.addEventListener('message', function(ev){
+    var data = ev && ev.data;
+    if (!data || data.type !== 'od:figma-extract' || !data.id) return;
+    waitForImages().then(function(){
+      try {
+        window.parent.postMessage({ type: 'od:figma-extract:result', id: String(data.id), scene: extract() }, '*');
+      } catch (err) {
+        window.parent.postMessage({ type: 'od:figma-extract:result', id: String(data.id), error: String((err && err.message) || err) }, '*');
+      }
+    });
   });
 })();</script>`;
   return injectBeforeBodyEnd(doc, script);

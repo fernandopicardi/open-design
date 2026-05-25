@@ -85,6 +85,16 @@ export function DesignFilesPanel({
   const lastKeyPress = useRef<Map<string, number>>(new Map());
   const [deleting, setDeleting] = useState(false);
   const [groupMode, setGroupMode] = useState<DesignFilesGroupMode>('kind');
+  const [query, setQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState<ProjectFileKind | 'all'>('all');
+
+  // Kinds present in this project, in the same priority order the list sorts
+  // by, so the type dropdown only offers types that actually exist here.
+  const availableKinds = useMemo(() => {
+    const kinds = new Set<ProjectFileKind>();
+    for (const f of files) kinds.add(f.kind);
+    return [...kinds].sort((a, b) => kindSortPriority(a) - kindSortPriority(b));
+  }, [files]);
   const [collapsedModifiedSections, setCollapsedModifiedSections] = useState<
     Set<ModifiedSection>
   >(new Set());
@@ -92,14 +102,20 @@ export function DesignFilesPanel({
   const [dayBoundary, setDayBoundary] = useState(() => Date.now());
 
   const sortedFiles = useMemo(() => {
-    return [...files].sort((a, b) => {
+    const q = query.trim().toLowerCase();
+    const base = files.filter(
+      (f) =>
+        (kindFilter === 'all' || f.kind === kindFilter) &&
+        (!q || f.name.toLowerCase().includes(q)),
+    );
+    return [...base].sort((a, b) => {
       let cmp: number;
       if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
       else if (sortKey === 'kind') cmp = kindSortPriority(a.kind) - kindSortPriority(b.kind);
       else cmp = a.mtime - b.mtime;
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [files, sortKey, sortDir]);
+  }, [files, query, kindFilter, sortKey, sortDir]);
 
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number | 'all'>(30);
@@ -140,6 +156,11 @@ export function DesignFilesPanel({
   useEffect(() => {
     setPage(0);
   }, [pageSize]);
+
+  // Filtering changes the result set, so snap back to the first page.
+  useEffect(() => {
+    setPage(0);
+  }, [query, kindFilter]);
 
   useEffect(() => {
     if (Number.isFinite(totalPages)) setPage((p) => Math.min(p, totalPages - 1));
@@ -640,6 +661,42 @@ export function DesignFilesPanel({
           ) : (
             <>
               {files.length > 0 ? (
+                <div className="df-search">
+                  <div className="df-search-box">
+                    <Icon name="search" size={13} />
+                    <input
+                      type="text"
+                      className="df-search-input"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={t('designFiles.searchPlaceholder')}
+                      aria-label={t('designFiles.searchPlaceholder')}
+                      data-testid="design-files-search"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setQuery('');
+                        }
+                      }}
+                    />
+                  </div>
+                  <select
+                    className="df-kind-filter"
+                    aria-label={t('designFiles.colKind')}
+                    data-testid="design-files-kind-filter"
+                    value={kindFilter}
+                    onChange={(e) => setKindFilter(e.target.value as ProjectFileKind | 'all')}
+                  >
+                    <option value="all">{t('designFiles.all')}</option>
+                    {availableKinds.map((k) => (
+                      <option key={k} value={k}>
+                        {kindLabel(k, t)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {files.length > 0 ? (
                 <div
                   className="df-group-toggle"
                   role="group"
@@ -845,6 +902,12 @@ export function DesignFilesPanel({
                     </span>
                   </div>
                 </>
+              ) : query.trim() || kindFilter !== 'all' ? (
+                <div className="df-empty" data-testid="design-files-no-match">
+                  <div className="df-empty-pill">
+                    <span className="df-empty-title">{t('designFiles.emptyNoMatch')}</span>
+                  </div>
+                </div>
               ) : null}
             </>
           )}

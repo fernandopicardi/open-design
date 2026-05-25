@@ -8111,6 +8111,48 @@ button.connector-action.is-loading {
   display: flex;
   flex-direction: column;
 }
+.df-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 20px 10px;
+}
+.df-search-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+}
+.df-search-box:focus-within {
+  border-color: var(--accent);
+}
+.df-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+.df-search-input::placeholder {
+  color: var(--text-faint);
+}
+.df-kind-filter {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .df-group-toggle {
   margin: 0 20px 8px;
   display: inline-flex;

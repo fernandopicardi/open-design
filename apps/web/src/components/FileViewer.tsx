@@ -45,6 +45,8 @@ import {
 } from '../providers/registry';
 import type { ProjectFilePreview } from '../providers/registry';
 import {
+  captureFigmaSceneFromSrcdoc,
+  exportAsFigmaScene,
   exportAsHtml,
   exportAsImage,
   exportAsJsx,
@@ -55,6 +57,7 @@ import {
   exportReactComponentAsHtml,
   exportReactComponentAsZip,
   openSandboxedPreviewInNewTab,
+  requestFigmaScene,
   requestPreviewSnapshot,
 } from '../runtime/exports';
 import { buildReactComponentSrcdoc } from '../runtime/react-component';
@@ -5514,6 +5517,36 @@ function HtmlViewer({
                       <span>{t('fileViewer.exportImage')}</span>
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className="share-menu-item"
+                    role="menuitem"
+                    onClick={async () => {
+                      setShareMenuOpen(false);
+                      // srcDoc preview already carries the Figma bridge — read
+                      // it from the live iframe. URL-loaded (multi-file)
+                      // previews have no bridge, so render the bridge-injected
+                      // srcDoc in a throwaway offscreen iframe instead.
+                      const live = iframeRef.current;
+                      const scene = !useUrlLoadPreview && live
+                        ? await requestFigmaScene(live)
+                        : srcDoc
+                          ? await captureFigmaSceneFromSrcdoc(srcDoc, {
+                              width: live?.clientWidth,
+                              height: live?.clientHeight,
+                            })
+                          : null;
+                      if (scene) {
+                        exportAsFigmaScene(scene, exportTitle);
+                      } else {
+                        console.warn('[exportAsFigmaScene] scene capture returned null');
+                        alert(t('fileViewer.exportFigmaFailed'));
+                      }
+                    }}
+                  >
+                    <span className="share-menu-icon"><Icon name="download" size={14} /></span>
+                    <span>{t('fileViewer.exportFigma')}</span>
+                  </button>
                   <div className="share-menu-divider" />
                   <button
                     type="button"

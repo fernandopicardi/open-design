@@ -1014,6 +1014,7 @@ export interface Dict {
   'designFiles.refresh': string;
   'designFiles.delete': string;
   'designFiles.searchPlaceholder': string;
+  'designFiles.emptyNoMatch': string;
   'designFiles.up': string;
   'designFiles.back': string;
   'designFiles.crumbs': string;
@@ -1199,6 +1200,8 @@ export interface Dict {
   'fileViewer.exportMd': string;
   'fileViewer.exportImage': string;
   'fileViewer.exportImageFailed': string;
+  'fileViewer.exportFigma': string;
+  'fileViewer.exportFigmaFailed': string;
   'fileViewer.exportJsx': string;
   'fileViewer.exportReactHtml': string;
   'fileViewer.saveAsTemplate': string;
